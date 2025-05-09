@@ -2,20 +2,17 @@ import streamlit as st
 import pandas as pd
 import numpy as np
 import joblib
-import tensorflow as tf
 from tensorflow.keras.models import load_model
+from sklearn.preprocessing import StandardScaler
+from sklearn.preprocessing import OneHotEncoder
+from sklearn.compose import ColumnTransformer
 
-# Load models and preprocessing tools
-rf_model = joblib.load("rf_model.pkl")
-xgb_model = joblib.load("xgb_model.pkl")
-keras_model = load_model("keras_model.h5")
-scaler = joblib.load("scaler.pkl")
-encoder = joblib.load("encoder.pkl")
-
+# Streamlit app title
 st.title("Heart Disease Prediction App")
 
 st.sidebar.header("Enter Patient Data")
 
+# User input function
 def user_input_features():
     Age = st.sidebar.slider("Age", 20, 100, 50)
     Sex = st.sidebar.selectbox("Sex", ["M", "F"])
@@ -47,24 +44,32 @@ def user_input_features():
 
 input_df = user_input_features()
 
-# Encode categorical features
+# Load pre-trained models (ensure these files exist in the correct path)
+rf_model = joblib.load("rf_model.joblib")  # RandomForest model saved as .joblib
+xgb_model = joblib.load("xgb_model.joblib")  # XGBoost model saved as .joblib
+keras_model = load_model("keras_model.h5")  # Keras model saved as .h5
+
+# Preprocessing setup
 cat_features = ["Sex", "ChestPainType", "RestingECG", "ExerciseAngina", "ST_Slope"]
 num_features = ["Age", "RestingBP", "Cholesterol", "FastingBS", "MaxHR", "Oldpeak"]
 
-encoded_cat = encoder.transform(input_df[cat_features])
-scaled_num = scaler.transform(input_df[num_features])
+# Preprocessing for categorical and numerical features
+preprocessor = ColumnTransformer(
+    transformers=[
+        ('num', StandardScaler(), num_features),
+        ('cat', OneHotEncoder(), cat_features)
+    ]
+)
 
-# Combine for final input
-final_input = np.hstack([scaled_num, encoded_cat])
+# Preprocess the input features
+input_processed = preprocessor.fit_transform(input_df)
 
-# Reshape input for Keras
-final_input_keras = final_input.reshape(1, -1)
+# Make predictions with pre-trained models
+rf_pred = rf_model.predict(input_processed)[0]
+xgb_pred = xgb_model.predict(input_processed)[0]
+keras_pred = (keras_model.predict(input_processed)[0][0] > 0.5).astype(int)
 
-# Predict with models
-rf_pred = rf_model.predict(final_input)[0]
-xgb_pred = xgb_model.predict(final_input)[0]
-keras_pred = (keras_model.predict(final_input_keras)[0][0] > 0.5).astype(int)
-
+# Display predictions
 st.subheader("Predictions")
 
 st.write(f"**Random Forest** Prediction: {'Heart Disease' if rf_pred else 'No Heart Disease'}")
