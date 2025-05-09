@@ -1,88 +1,143 @@
 import streamlit as st
 import pandas as pd
 import numpy as np
-import joblib
-from tensorflow.keras.models import Sequential
-from tensorflow.keras.layers import Dense
-from sklearn.ensemble import RandomForestClassifier
-from sklearn.preprocessing import StandardScaler, OneHotEncoder
 from sklearn.model_selection import train_test_split
-from sklearn.metrics import accuracy_score
+from sklearn.preprocessing import StandardScaler, OneHotEncoder
+from sklearn.compose import ColumnTransformer
+from sklearn.pipeline import Pipeline
+from sklearn.impute import SimpleImputer
+from sklearn.metrics import recall_score
+from sklearn.linear_model import LogisticRegression, RidgeClassifier
+from sklearn.naive_bayes import GaussianNB
+from sklearn.neighbors import KNeighborsClassifier
+from sklearn.tree import DecisionTreeClassifier
+from sklearn.ensemble import RandomForestClassifier
+from sklearn.svm import SVC
+from xgboost import XGBClassifier
+from tensorflow.keras.models import Sequential
+from tensorflow.keras.layers import Dense, Dropout
+import tensorflow as tf
+import random
 
-# Streamlit app title
-st.title("Heart Disease Prediction App")
+# Seed
+SEED = 42
+np.random.seed(SEED)
+tf.random.set_seed(SEED)
+random.seed(SEED)
 
-st.sidebar.header("Enter Patient Data")
+st.title("Top 3 Heart Disease Predictors")
 
-# User input function
-def user_input_features():
-    Age = st.sidebar.slider("Age", 20, 100, 50)
-    Sex = st.sidebar.selectbox("Sex", ["M", "F"])
-    ChestPainType = st.sidebar.selectbox("Chest Pain Type", ["ATA", "NAP", "ASY", "TA"])
-    RestingBP = st.sidebar.slider("Resting Blood Pressure", 80, 200, 120)
-    Cholesterol = st.sidebar.slider("Cholesterol", 100, 600, 200)
-    FastingBS = st.sidebar.selectbox("Fasting Blood Sugar > 120 mg/dl", [0, 1])
-    RestingECG = st.sidebar.selectbox("Resting ECG", ["Normal", "ST", "LVH"])
-    MaxHR = st.sidebar.slider("Max Heart Rate", 60, 220, 150)
-    ExerciseAngina = st.sidebar.selectbox("Exercise Angina", ["Y", "N"])
-    Oldpeak = st.sidebar.slider("Oldpeak", 0.0, 6.0, 1.0)
-    ST_Slope = st.sidebar.selectbox("ST Slope", ["Up", "Flat", "Down"])
+uploaded_file = st.file_uploader("Upload your CSV file", type=['csv'])
 
-    data = {
-        "Age": Age,
-        "Sex": Sex,
-        "ChestPainType": ChestPainType,
-        "RestingBP": RestingBP,
-        "Cholesterol": Cholesterol,
-        "FastingBS": FastingBS,
-        "RestingECG": RestingECG,
-        "MaxHR": MaxHR,
-        "ExerciseAngina": ExerciseAngina,
-        "Oldpeak": Oldpeak,
-        "ST_Slope": ST_Slope,
+# Clean data
+def remove_outliers_iqr(data, columns, multiplier=1.5):
+    df_clean = data.copy()
+    for col in columns:
+        Q1 = df_clean[col].quantile(0.25)
+        Q3 = df_clean[col].quantile(0.75)
+        IQR = Q3 - Q1
+        lower_bound = Q1 - multiplier * IQR
+        upper_bound = Q3 + multiplier * IQR
+        df_clean = df_clean[(df_clean[col] >= lower_bound) & (df_clean[col] <= upper_bound)]
+    return df_clean
+
+# Keras model
+def build_keras_model(input_shape):
+    model = Sequential([
+        Dense(64, activation='relu', input_shape=(input_shape,)),
+        Dropout(0.3),
+        Dense(32, activation='relu'),
+        Dropout(0.3),
+        Dense(1, activation='sigmoid')
+    ])
+    model.compile(optimizer='adam', loss='binary_crossentropy', metrics=['Recall'])
+    return model
+
+# Cache the model training step
+@st.cache_resource
+def train_top_models(df):
+    df = remove_outliers_iqr(df, df.select_dtypes(include=['int64', 'float64']).columns)
+    X = df.drop('HeartDisease', axis=1)
+    y = df['HeartDisease']
+
+    numeric_features = X.select_dtypes(include=['int64', 'float64']).columns.tolist()
+    categorical_features = X.select_dtypes(include=['object']).columns.tolist()
+
+    numeric_transformer = Pipeline([
+        ('imputer', SimpleImputer(strategy='median')),
+        ('scaler', StandardScaler())
+    ])
+    categorical_transformer = Pipeline([
+        ('imputer', SimpleImputer(strategy='most_frequent')),
+        ('encoder', OneHotEncoder(handle_unknown='ignore'))
+    ])
+
+    preprocessor = ColumnTransformer([
+        ('num', numeric_transformer, numeric_features),
+        ('cat', categorical_transformer, categorical_features)
+    ])
+
+    X_train, X_test, y_train, y_test = train_test_split(X, y, test_size=0.2, random_state=SEED)
+
+    models = {
+        'Logistic Regression': LogisticRegression(max_iter=1000, random_state=SEED),
+        'KNN': KNeighborsClassifier(),
+        'Decision Tree': DecisionTreeClassifier(random_state=SEED),
+        'Random Forest': RandomForestClassifier(random_state=SEED),
+        'SVM': SVC(probability=True, random_state=SEED),
+        'Naive Bayes': GaussianNB(),
+        'Ridge Classifier': RidgeClassifier(random_state=SEED),
+        'XGBoost': XGBClassifier(use_label_encoder=False, eval_metric='logloss', random_state=SEED)
     }
 
-    return pd.DataFrame([data])
+    results = []
 
-input_df = user_input_features()
+    for name, model in models.items():
+        pipeline = Pipeline([
+            ('preprocessor', preprocessor),
+            ('classifier', model)
+        ])
+        pipeline.fit(X_train, y_train)
+        y_pred = pipeline.predict(X_test)
+        recall = recall_score(y_test, y_pred)
+        results.append((name, recall, pipeline))
 
-# Training a model (Here we assume mock data or placeholder data for training)
-# Example of mock data (you can replace this with actual dataset if available)
-X_mock = np.random.rand(100, 11)  # 100 samples with 11 features
-y_mock = np.random.randint(0, 2, 100)  # 100 target labels (0 or 1)
+    # Neural network
+    X_train_processed = preprocessor.fit_transform(X_train)
+    X_test_processed = preprocessor.transform(X_test)
+    keras_model = build_keras_model(X_train_processed.shape[1])
+    keras_model.fit(X_train_processed, y_train, epochs=50, validation_split=0.2, verbose=0)
+    y_pred_keras = (keras_model.predict(X_test_processed) > 0.5).astype("int32")
+    keras_recall = recall_score(y_test, y_pred_keras)
+    results.append(("Neural Network", keras_recall, (preprocessor, keras_model)))
 
-# Preprocessing for categorical and numerical features
-cat_features = ["Sex", "ChestPainType", "RestingECG", "ExerciseAngina", "ST_Slope"]
-num_features = ["Age", "RestingBP", "Cholesterol", "FastingBS", "MaxHR", "Oldpeak"]
+    results.sort(key=lambda x: x[1], reverse=True)
+    top3 = results[:3]
+    return top3, numeric_features, categorical_features, preprocessor, X
 
-# Creating encoder and scaler for the features
-encoder = OneHotEncoder(handle_unknown='ignore')
-scaler = StandardScaler()
+if uploaded_file:
+    df = pd.read_csv(uploaded_file)
+    top3, numeric_features, categorical_features, preprocessor, X_example = train_top_models(df)
 
-# Apply encoding to categorical columns and scaling to numerical columns
-X_mock_cat = encoder.fit_transform(pd.DataFrame(X_mock[:, :5], columns=cat_features))
-X_mock_num = scaler.fit_transform(pd.DataFrame(X_mock[:, 5:], columns=num_features))
+    st.subheader("Top 3 Models by Recall Score:")
+    for name, recall, _ in top3:
+        st.write(f"**{name}**: Recall = {recall:.4f}")
 
-# Combine the processed categorical and numerical data
-X_processed = np.hstack([X_mock_cat.toarray(), X_mock_num])
+    st.subheader("Make a Prediction")
+    input_data = {}
+    for col in numeric_features:
+        input_data[col] = st.number_input(f"{col}", value=float(X_example[col].mean()))
+    for col in categorical_features:
+        input_data[col] = st.selectbox(f"{col}", options=X_example[col].dropna().unique())
 
-# Train a RandomForest model
-rf_model = RandomForestClassifier()
-rf_model.fit(X_processed, y_mock)
-
-# Train a Keras Neural Network
-keras_model = Sequential()
-keras_model.add(Dense(32, input_dim=11, activation='relu'))
-keras_model.add(Dense(1, activation='sigmoid'))
-keras_model.compile(loss='binary_crossentropy', optimizer='adam', metrics=['accuracy'])
-keras_model.fit(X_processed, y_mock, epochs=10, batch_size=10, verbose=0)
-
-# Make predictions with trained models
-rf_pred = rf_model.predict(X_processed[:1])[0]  # Use the first row of data for prediction
-keras_pred = (keras_model.predict(X_processed[:1])[0][0] > 0.5).astype(int)
-
-# Display predictions
-st.subheader("Predictions")
-
-st.write(f"**Random Forest** Prediction: {'Heart Disease' if rf_pred else 'No Heart Disease'}")
-st.write(f"**Keras Neural Network** Prediction: {'Heart Disease' if keras_pred else 'No Heart Disease'}")
+    if st.button("Predict"):
+        input_df = pd.DataFrame([input_data])
+        st.write("Predictions:")
+        for name, _, model in top3:
+            if name == "Neural Network":
+                preproc, nn_model = model
+                transformed = preproc.transform(input_df)
+                pred = int((nn_model.predict(transformed) > 0.5)[0][0])
+            else:
+                pred = model.predict(input_df)[0]
+            st.write(f"{name}: {'Heart Disease' if pred == 1 else 'No Heart Disease'}")
