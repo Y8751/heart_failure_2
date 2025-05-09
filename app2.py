@@ -2,10 +2,12 @@ import streamlit as st
 import pandas as pd
 import numpy as np
 import joblib
-from tensorflow.keras.models import load_model
-from sklearn.preprocessing import StandardScaler
-from sklearn.preprocessing import OneHotEncoder
-from sklearn.compose import ColumnTransformer
+from tensorflow.keras.models import Sequential
+from tensorflow.keras.layers import Dense
+from sklearn.ensemble import RandomForestClassifier
+from sklearn.preprocessing import StandardScaler, OneHotEncoder
+from sklearn.model_selection import train_test_split
+from sklearn.metrics import accuracy_score
 
 # Streamlit app title
 st.title("Heart Disease Prediction App")
@@ -44,34 +46,43 @@ def user_input_features():
 
 input_df = user_input_features()
 
-# Load pre-trained models (ensure these files exist in the correct path)
-rf_model = joblib.load("rf_model.joblib")  # RandomForest model saved as .joblib
-xgb_model = joblib.load("xgb_model.joblib")  # XGBoost model saved as .joblib
-keras_model = load_model("keras_model.h5")  # Keras model saved as .h5
+# Training a model (Here we assume mock data or placeholder data for training)
+# Example of mock data (you can replace this with actual dataset if available)
+X_mock = np.random.rand(100, 11)  # 100 samples with 11 features
+y_mock = np.random.randint(0, 2, 100)  # 100 target labels (0 or 1)
 
-# Preprocessing setup
+# Preprocessing for categorical and numerical features
 cat_features = ["Sex", "ChestPainType", "RestingECG", "ExerciseAngina", "ST_Slope"]
 num_features = ["Age", "RestingBP", "Cholesterol", "FastingBS", "MaxHR", "Oldpeak"]
 
-# Preprocessing for categorical and numerical features
-preprocessor = ColumnTransformer(
-    transformers=[
-        ('num', StandardScaler(), num_features),
-        ('cat', OneHotEncoder(), cat_features)
-    ]
-)
+# Creating encoder and scaler for the features
+encoder = OneHotEncoder(handle_unknown='ignore')
+scaler = StandardScaler()
 
-# Preprocess the input features
-input_processed = preprocessor.fit_transform(input_df)
+# Apply encoding to categorical columns and scaling to numerical columns
+X_mock_cat = encoder.fit_transform(pd.DataFrame(X_mock[:, :5], columns=cat_features))
+X_mock_num = scaler.fit_transform(pd.DataFrame(X_mock[:, 5:], columns=num_features))
 
-# Make predictions with pre-trained models
-rf_pred = rf_model.predict(input_processed)[0]
-xgb_pred = xgb_model.predict(input_processed)[0]
-keras_pred = (keras_model.predict(input_processed)[0][0] > 0.5).astype(int)
+# Combine the processed categorical and numerical data
+X_processed = np.hstack([X_mock_cat.toarray(), X_mock_num])
+
+# Train a RandomForest model
+rf_model = RandomForestClassifier()
+rf_model.fit(X_processed, y_mock)
+
+# Train a Keras Neural Network
+keras_model = Sequential()
+keras_model.add(Dense(32, input_dim=11, activation='relu'))
+keras_model.add(Dense(1, activation='sigmoid'))
+keras_model.compile(loss='binary_crossentropy', optimizer='adam', metrics=['accuracy'])
+keras_model.fit(X_processed, y_mock, epochs=10, batch_size=10, verbose=0)
+
+# Make predictions with trained models
+rf_pred = rf_model.predict(X_processed[:1])[0]  # Use the first row of data for prediction
+keras_pred = (keras_model.predict(X_processed[:1])[0][0] > 0.5).astype(int)
 
 # Display predictions
 st.subheader("Predictions")
 
 st.write(f"**Random Forest** Prediction: {'Heart Disease' if rf_pred else 'No Heart Disease'}")
-st.write(f"**XGBoost** Prediction: {'Heart Disease' if xgb_pred else 'No Heart Disease'}")
 st.write(f"**Keras Neural Network** Prediction: {'Heart Disease' if keras_pred else 'No Heart Disease'}")
