@@ -54,4 +54,4 @@ def build_keras_model(input_shape):
         Dense(32, activation='relu'),
         Dropout(0.3),
         Dense(1, activation='sigmoid')
-    ]
+    ])
