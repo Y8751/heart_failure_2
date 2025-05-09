@@ -30,7 +30,7 @@ st.title("Top 3 Heart Disease Predictors")
 # --- Hardcoded dataset ---
 @st.cache_data
 def load_data():
-    return pd.read_csv("https://raw.githubusercontent.com/omairaasim/heart-disease-dataset/main/heart.csv")
+    return pd.read_csv("heart.csv")
 
 df = load_data()
 
