@@ -57,10 +57,13 @@ scaled_num = scaler.transform(input_df[num_features])
 # Combine for final input
 final_input = np.hstack([scaled_num, encoded_cat])
 
+# Reshape input for Keras
+final_input_keras = final_input.reshape(1, -1)
+
 # Predict with models
 rf_pred = rf_model.predict(final_input)[0]
 xgb_pred = xgb_model.predict(final_input)[0]
-keras_pred = (keras_model.predict(final_input)[0][0] > 0.5).astype(int)
+keras_pred = (keras_model.predict(final_input_keras)[0][0] > 0.5).astype(int)
 
 st.subheader("Predictions")
 
